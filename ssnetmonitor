@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+
+import argparse
+import io
+import signal
+import subprocess
+import sys
+import yaml
+
+from datetime import datetime
+from time     import sleep
+
+HUP = 0
+
+parser = argparse.ArgumentParser("simple-network-monitor")
+parser.add_argument('-d','--debug',action='store_true',help='Print debugging info')
+parser.add_argument('-c','--cfg',help='Location of configuration file');
+ARGS = parser.parse_args()
+
+def next_host(host_list):
+  try:
+    next_host.c += 1
+  except AttributeError:
+    next_host.c = 0
+  if next_host.c >= len(host_list):
+    next_host.c = 0
+  return(host_list[next_host.c])
+
+def get_x_hosts(number,host_list):
+  list = []
+  i = 1
+  while i <= number:
+    list.append(next_host(host_list))
+    i += 1
+  return list
+
+def ping_host(host):
+  try:
+    subprocess.check_call(['ping','-c','2',host],stdout=subprocess.DEVNULL)
+  except subprocess.CalledProcessError:
+    return False
+  return True
+
+def log_incident(logfile,msg):
+  global ARGS
+  line = "%s %s" % (datetime.now(), msg)
+  if ARGS.debug: print('LOG: ' + line)
+  try:
+    with open(logfile, 'a') as stream:
+      stream.write(line + "\n")
+  except IOError as ioe: 
+    return False 
+  return True
+
+def caught_a_hup(number,frame):
+  global HUP
+  HUP = 1
+
+def main():
+  global HUP
+  signal.signal(signal.SIGHUP, caught_a_hup)
+
+  global ARGS
+  config = ARGS.cfg or 'ssnetmonitor.yaml'
+  if ARGS.debug: print('DEBUG: Config file => ' + config)
+
+  try:
+    with open(config, 'r') as stream:
+      try:
+        cfg = yaml.safe_load(stream)
+      except yaml.YAMLError as yerr:
+        sys.exit("ERROR: Configuration YAML error\n%s" % yerr)
+  except IOError as ioe: 
+    sys.exit("ERROR: Configuration FILE error\n%s" % ioe)
+
+  logfile = cfg.get('log_file',False) or 'simple-network-monitor.log'
+  if ARGS.debug: print('DEBUG: log file => ' + logfile)
+
+  slp = int(cfg.get('sleep',False)) or 30
+  if ARGS.debug: print('DEBUG: sleep => ' + str(slp))
+
+  if not log_incident(logfile,'STARTUP'):
+    sys.exit("ERROR: Cannot write to %s" % logfile)
+
+  down_marker = alive = 0
+  while (1):
+    if HUP:
+      log_incident(logfile,"HUP")
+      sys.exit("Caught a HUP, exiting cleanly")
+
+    sleep(slp)
+
+    alive += 1
+    if alive % 60 == 0:
+      alive = 0
+      log_incident(logfile,"ALIVE")
+
+    # Handle the local pings, if configured to
+    cont = 0
+    for marker in ['gateway','modem']:
+      if cfg.get(marker,False) and not cont:
+        if ARGS.debug: print('DEBUG: pinging %s %s' % (marker,cfg[marker]))
+        if not ping_host(cfg[marker]):
+          if not down_marker: log_incident(logfile,"DOWN %s" % marker)
+          down_marker = cont = 1
+    if cont: continue
+
+    # Handle external pings - we try 2 for confirmation
+    hosts = get_x_hosts(2,cfg['hosts'])
+    okay = 0
+    for host in hosts:
+      if ARGS.debug: print('DEBUG: pinging ' + host)
+      if ping_host(host): 
+        okay = 1
+        break
+    if not okay and not down_marker:
+      down_marker = 1
+      log_incident(logfile,"DOWN EXTERNAL")
+      continue
+
+    if down_marker:
+      log_incident(logfile,"UP")
+      down_marker = 0
+
+if __name__ == "__main__":
+  main()
+

@@ -1,0 +1,22 @@
+# External hosts to ping - at least two (required) 
+hosts:
+- 8.8.8.8
+- 1.1.1.1
+- 9.9.9.9
+- 208.67.222.222
+- 8.8.4.4
+- 1.0.0.1
+- 9.9.9.10
+- 208.67.220.220
+
+# The default route of your local router (optional)
+#gateway: 192.168.1.1
+
+# The IP assigned to your modem (optional)
+#modem: YOUR_ASSIGNED_IP_ADDR 
+
+# How long between checks in seconds (default is 30)
+#sleep: 30 
+
+# Location of the file where results are logged
+log_file: ssnetmonitor.log 
